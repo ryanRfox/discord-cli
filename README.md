@@ -11,7 +11,7 @@ Discord CLI — fetch chat history, search messages, daily sync, AI analysis. Us
 - [bilibili-cli](https://github.com/jackwener/bilibili-cli) — Bilibili CLI
 - [xhs-cli](https://github.com/jackwener/xhs-cli) — Xiaohongshu CLI
 
-[English](#features) | [中文](#功能特性)
+
 
 ## Features
 
@@ -145,18 +145,7 @@ mkdir -p .agents/skills
 git clone git@github.com:jackwener/discord-cli.git .agents/skills/discord-cli
 ```
 
----
-
-## 功能特性
-
-- 🔐 **认证** — 自动从浏览器/Discord 客户端提取 token
-- 🏠 **服务器** — 列出 server、channel、成员
-- 📜 **历史** — 拉取消息历史存入 SQLite
-- 🔄 **同步** — 增量同步、批量同步
-- 🔍 **搜索** — Discord 原生搜索 + 本地关键词搜索
-- 📊 **分析** — 统计、活跃排行、时间线
-- 🤖 **AI** — Claude 分析和摘要
-- 📤 **导出** — text/JSON 格式
+[中文文档](./README_CN.md)
 
 ## License
 
