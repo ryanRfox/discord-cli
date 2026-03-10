@@ -1,6 +1,6 @@
 ---
 name: discord-cli
-description: Discord CLI for fetching chat history, searching messages, and AI analysis
+description: Discord CLI with JSON output for AI agents — fetch chat history, search messages, sync channels, and AI analysis
 author: jackwener
 version: "1.0.0"
 tags:
@@ -14,6 +14,15 @@ tags:
 # discord-cli Skill
 
 CLI tool for Discord — fetch chat history, search messages, sync channels, AI analysis.
+
+## Agent Defaults
+
+When you need machine-readable output:
+
+1. **Always use `--json`** for structured output. Do not parse the default rich-text table output.
+2. Use `-n` to keep result sets small and token-efficient.
+3. Use `-o <file>` with `export` to save large datasets to a file.
+4. Prefer specific queries over broad ones. Example: use `discord search "keyword" -c general --json` instead of scanning all channels.
 
 ## Prerequisites
 
@@ -87,15 +96,15 @@ discord summary --hours 48                     # Last 48h summary
 
 ```bash
 # 1. First time: fetch history for channels you care about
-discord dc guilds
-discord dc channels <guild_id>
+discord dc guilds --json
+discord dc channels <guild_id> --json
 discord dc history <channel_id> -n 2000
 
 # 2. Daily: incremental sync
 discord dc sync-all
 
-# 3. Read today's messages
-discord today
+# 3. Read today's messages (structured output for agents)
+discord today --json
 
 # 4. AI summary
 discord summary

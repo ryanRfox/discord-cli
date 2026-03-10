@@ -21,8 +21,10 @@ discord-cli uses the Discord HTTP API with a **user token** from your local sess
 
 - Local-first SQLite storage for history, sync, search, export, and analytics
 - `discord dc sync-all` discovers accessible text channels and bootstraps from the API
-- Query commands support `--json` for scripting and agents
+- Query commands support `--json` for scripting and AI agent integration
 - `timeline --json` for machine-readable activity data
+
+> **AI Agent Tip:** Always use `--json` for structured output instead of parsing the default rich-text display. Use `-n` to limit results.
 - Optional Claude-powered `analyze` and `summary`
 - Safer local channel resolution for `search`, `recent`, `today`, `export`, and `purge`
 

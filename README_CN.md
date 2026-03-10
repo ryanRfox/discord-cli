@@ -21,8 +21,10 @@ discord-cli 通过 Discord HTTP API 访问你本机登录态里的 **user token*
 
 - 基于 SQLite 的本地消息缓存，支持 history、sync、search、export 和 analytics
 - `discord dc sync-all` 会直接从 API 发现可访问的文字频道，空库也能冷启动
-- 查询命令支持 `--json`，方便脚本和 agent 调用
+- 查询命令支持 `--json`，方便脚本和 AI agent 调用
 - `timeline --json` 提供机器可读的活跃度数据
+
+> **AI Agent 提示：** 需要结构化输出时始终使用 `--json`，不要解析默认的富文本显示。用 `-n` 控制返回数量。
 - 可选的 Claude `analyze` / `summary`
 - 更安全的 channel 解析：遇到重名或模糊匹配会直接报错，而不是误操作
 
