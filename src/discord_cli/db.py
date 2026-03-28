@@ -26,7 +26,11 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_name   TEXT,
     content       TEXT,
     timestamp     TEXT    NOT NULL,
-    raw_json      TEXT,
+    raw_json          TEXT,
+    reply_to_msg_id   TEXT,
+    msg_type          INTEGER DEFAULT 0,
+    reply_to_content  TEXT,
+    reply_to_author   TEXT,
     UNIQUE(platform, channel_id, msg_id)
 );
 """
@@ -86,6 +90,21 @@ class MessageDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(_CREATE_TABLE + _CREATE_INDEX)
+        self._migrate_reply_columns()
+
+    def _migrate_reply_columns(self) -> None:
+        """Add reply/thread columns to existing databases."""
+        new_columns = [
+            ("reply_to_msg_id", "TEXT"),
+            ("msg_type", "INTEGER DEFAULT 0"),
+            ("reply_to_content", "TEXT"),
+            ("reply_to_author", "TEXT"),
+        ]
+        for col_name, col_type in new_columns:
+            try:
+                self.conn.execute(f"ALTER TABLE messages ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def __enter__(self):
         return self
@@ -111,6 +130,10 @@ class MessageDB:
                 m.get("content"),
                 m["timestamp"].isoformat() if isinstance(m["timestamp"], datetime) else m["timestamp"],
                 json.dumps(m["raw_json"], ensure_ascii=False) if m.get("raw_json") else None,
+                m.get("reply_to_msg_id"),
+                m.get("msg_type", 0),
+                m.get("reply_to_content"),
+                m.get("reply_to_author"),
             )
             for m in messages
         ]
@@ -119,8 +142,9 @@ class MessageDB:
             self.conn.executemany(
                 """INSERT OR IGNORE INTO messages
                    (platform, guild_id, guild_name, channel_id, channel_name,
-                    msg_id, sender_id, sender_name, content, timestamp, raw_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    msg_id, sender_id, sender_name, content, timestamp, raw_json,
+                    reply_to_msg_id, msg_type, reply_to_content, reply_to_author)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows,
             )
             self.conn.commit()

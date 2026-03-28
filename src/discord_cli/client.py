@@ -198,6 +198,19 @@ def _parse_message(msg: dict, channel_id: str) -> dict:
         if title := embed.get("title"):
             content_parts.append(f"[embed: {title}]")
 
+    # Reply / thread metadata
+    msg_ref = msg.get("message_reference") or {}
+    reply_to_msg_id = msg_ref.get("message_id")
+    msg_type = msg.get("type", 0)  # 0=default, 19=reply
+
+    reply_to_content: str | None = None
+    reply_to_author: str | None = None
+    ref = msg.get("referenced_message")
+    if ref:
+        reply_to_content = (ref.get("content") or "")[:200]
+        ref_author = ref.get("author") or {}
+        reply_to_author = ref_author.get("global_name") or ref_author.get("username")
+
     return {
         "msg_id": msg["id"],
         "channel_id": channel_id,
@@ -205,6 +218,10 @@ def _parse_message(msg: dict, channel_id: str) -> dict:
         "sender_name": author.get("global_name") or author.get("username") or "Unknown",
         "content": "\n".join(content_parts),
         "timestamp": timestamp,
+        "reply_to_msg_id": reply_to_msg_id,
+        "msg_type": msg_type,
+        "reply_to_content": reply_to_content,
+        "reply_to_author": reply_to_author,
     }
 
 
