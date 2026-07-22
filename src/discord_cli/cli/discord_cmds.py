@@ -9,10 +9,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..client import (
+    GUILD_FORUM,
+    GUILD_MEDIA,
     fetch_messages,
     get_client,
     get_guild_info,
     list_channels,
+    list_forum_thread_ids,
     list_guilds,
     list_members,
     resolve_guild_id,
@@ -30,11 +33,12 @@ def discord_group():
     pass
 
 
-async def _fetch_channel_context(client, channel_id: str) -> dict[str, str | None]:
-    """Resolve channel and guild names for a channel."""
+async def _fetch_channel_context(client, channel_id: str) -> dict[str, str | int | None]:
+    """Resolve channel and guild names (and type) for a channel."""
     channel_name = None
     guild_name = None
     guild_id = None
+    channel_type = None
 
     with suppress(Exception):
         response = await client.get(f"/channels/{channel_id}")
@@ -42,6 +46,7 @@ async def _fetch_channel_context(client, channel_id: str) -> dict[str, str | Non
             data = response.json()
             channel_name = data.get("name")
             guild_id = data.get("guild_id")
+            channel_type = data.get("type")
             if guild_id:
                 guild = await get_guild_info(client, guild_id)
                 if guild:
@@ -51,7 +56,23 @@ async def _fetch_channel_context(client, channel_id: str) -> dict[str, str | Non
         "channel_name": channel_name,
         "guild_name": guild_name,
         "guild_id": guild_id,
+        "channel_type": channel_type,
     }
+
+
+async def _fetch_forum_messages(
+    client,
+    forum_id: str,
+    *,
+    limit: int,
+    after_id_fn=None,
+) -> list[dict]:
+    """Fetch messages from every thread under a forum/media channel."""
+    messages: list[dict] = []
+    for thread_id in await list_forum_thread_ids(client, forum_id):
+        after = after_id_fn(thread_id) if after_id_fn else None
+        messages += await fetch_messages(client, thread_id, limit=limit, after=after)
+    return messages
 
 
 def _annotate_messages(messages: list[dict], context: dict[str, str | None]) -> list[dict]:
@@ -184,7 +205,10 @@ def dc_history(channel: str, limit: int, guild_name: str | None, channel_name: s
                         f"Fetching messages from {context.get('channel_name') or channel}...",
                         total=None,
                     )
-                    messages = await fetch_messages(client, channel, limit=limit)
+                    if context.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
+                        messages = await _fetch_forum_messages(client, channel, limit=limit)
+                    else:
+                        messages = await fetch_messages(client, channel, limit=limit)
                     progress.update(task, description=f"Fetched {len(messages)} messages")
 
                 _annotate_messages(messages, context)
@@ -224,7 +248,12 @@ def dc_sync(channel: str, limit: int, as_json: bool, as_yaml: bool):
                         f"Syncing {context.get('channel_name') or channel}...",
                         total=None,
                     )
-                    messages = await fetch_messages(client, channel, limit=limit, after=last_id)
+                    if context.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
+                        messages = await _fetch_forum_messages(
+                            client, channel, limit=limit, after_id_fn=db.get_last_msg_id
+                        )
+                    else:
+                        messages = await fetch_messages(client, channel, limit=limit, after=last_id)
                     progress.update(task_id, description=f"Fetched {len(messages)} new messages")
 
                 _annotate_messages(messages, context)
@@ -324,6 +353,7 @@ def dc_sync_all(limit: int):
                                 "guild_name": guild["name"],
                                 "channel_id": channel["id"],
                                 "channel_name": channel["name"],
+                                "channel_type": channel.get("type"),
                             }
                         )
 
@@ -343,7 +373,14 @@ def dc_sync_all(limit: int):
                     ch_name = ch.get("channel_name") or ch_id
                     last_id = db.get_last_msg_id(ch_id)
                     try:
-                        messages = await fetch_messages(client, ch_id, limit=limit, after=last_id)
+                        if ch.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
+                            messages = await _fetch_forum_messages(
+                                client, ch_id, limit=limit, after_id_fn=db.get_last_msg_id
+                            )
+                        else:
+                            messages = await fetch_messages(
+                                client, ch_id, limit=limit, after=last_id
+                            )
                         for msg in messages:
                             msg["guild_name"] = ch.get("guild_name")
                             msg["channel_name"] = ch.get("channel_name")

@@ -16,6 +16,10 @@ from .exceptions import RateLimitError
 # Discord epoch: 2015-01-01T00:00:00Z
 DISCORD_EPOCH = 1420070400000
 
+# Channel types whose content lives in child threads, not top-level messages.
+GUILD_FORUM = 15
+GUILD_MEDIA = 16
+
 
 def snowflake_to_datetime(snowflake: int | str) -> datetime:
     """Convert a Discord snowflake ID to a UTC datetime."""
@@ -105,8 +109,8 @@ async def resolve_guild_id(client: httpx.AsyncClient, guild: str) -> str | None:
 async def list_channels(client: httpx.AsyncClient, guild_id: str) -> list[dict]:
     """List all text channels in a guild."""
     data = await _get(client, f"/guilds/{guild_id}/channels")
-    # type 0 = text channel, 5 = announcement, 15 = forum
-    text_types = {0, 5, 15}
+    # type 0 = text channel, 5 = announcement, 15 = forum, 16 = media forum
+    text_types = {0, 5, GUILD_FORUM, GUILD_MEDIA}
     results = []
     for ch in data:
         if ch.get("type") in text_types:
@@ -178,6 +182,31 @@ async def fetch_messages(
     # Sort by timestamp ascending
     all_messages.sort(key=lambda m: m["msg_id"])
     return all_messages
+
+
+async def list_forum_thread_ids(client: httpx.AsyncClient, forum_id: str) -> list[str]:
+    """List thread channel IDs under a forum/media channel (type 15/16).
+
+    Uses the archived-public listing rather than the guild-level
+    /threads/active endpoint, which is bot-only and 403s for user tokens.
+    Currently-active (not-yet-archived) threads are invisible here until
+    Discord auto-archives them (1-7 days) -- a bounded gap, not data loss,
+    given the continuous sync cadence.
+    """
+    ids: list[str] = []
+    before: str | None = None
+    while True:
+        params: dict[str, Any] = {"limit": 100}
+        if before:
+            params["before"] = before
+        page = await _get(client, f"/channels/{forum_id}/threads/archived/public", **params)
+        threads = page.get("threads", [])
+        ids += [t["id"] for t in threads]
+        if not threads or not page.get("has_more"):
+            break
+        before = threads[-1]["thread_metadata"]["archive_timestamp"]
+        await asyncio.sleep(random.uniform(0.3, 1.0))
+    return ids
 
 
 def _parse_message(msg: dict, channel_id: str) -> dict:
