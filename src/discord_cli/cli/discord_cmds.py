@@ -1,6 +1,7 @@
 """Discord subcommands — guilds, channels, history, sync, sync-all, search, members."""
 
 import asyncio
+import logging
 from contextlib import suppress
 
 import click
@@ -25,6 +26,7 @@ from ..db import MessageDB
 from ._output import emit_error, emit_structured, structured_output_options
 
 console = Console(stderr=True)
+log = logging.getLogger(__name__)
 
 
 @click.group("dc")
@@ -63,16 +65,36 @@ async def _fetch_channel_context(client, channel_id: str) -> dict[str, str | int
 async def _fetch_forum_messages(
     client,
     forum_id: str,
+    db: MessageDB,
+    context: dict,
     *,
     limit: int,
     after_id_fn=None,
-) -> list[dict]:
-    """Fetch messages from every thread under a forum/media channel."""
-    messages: list[dict] = []
+) -> tuple[list[dict], int]:
+    """Fetch and store messages from every thread under a forum/media channel.
+
+    Annotates and inserts each thread's batch as soon as it's fetched, rather
+    than aggregating every thread's messages into one list before a single
+    insert at the end. That way a single thread hitting a storage error
+    (bad data, transient DB issue) can't silently zero out the stored count
+    for the rest of the forum's threads.
+    """
+    all_messages: list[dict] = []
+    inserted_total = 0
     for thread_id in await list_forum_thread_ids(client, forum_id):
         after = after_id_fn(thread_id) if after_id_fn else None
-        messages += await fetch_messages(client, thread_id, limit=limit, after=after)
-    return messages
+        thread_messages = await fetch_messages(client, thread_id, limit=limit, after=after)
+        if not thread_messages:
+            continue
+        _annotate_messages(thread_messages, context)
+        try:
+            inserted_total += db.insert_batch(thread_messages)
+        except Exception:
+            log.exception(
+                "Failed to store %d message(s) for thread %s", len(thread_messages), thread_id
+            )
+        all_messages += thread_messages
+    return all_messages, inserted_total
 
 
 def _annotate_messages(messages: list[dict], context: dict[str, str | None]) -> list[dict]:
@@ -206,14 +228,15 @@ def dc_history(channel: str, limit: int, guild_name: str | None, channel_name: s
                         total=None,
                     )
                     if context.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
-                        messages = await _fetch_forum_messages(client, channel, limit=limit)
+                        messages, inserted = await _fetch_forum_messages(
+                            client, channel, db, context, limit=limit
+                        )
                     else:
                         messages = await fetch_messages(client, channel, limit=limit)
+                        _annotate_messages(messages, context)
+                        inserted = db.insert_batch(messages)
                     progress.update(task, description=f"Fetched {len(messages)} messages")
 
-                _annotate_messages(messages, context)
-
-                inserted = db.insert_batch(messages)
                 return len(messages), inserted
 
     total, inserted = asyncio.run(_run())
@@ -249,16 +272,20 @@ def dc_sync(channel: str, limit: int, as_json: bool, as_yaml: bool):
                         total=None,
                     )
                     if context.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
-                        messages = await _fetch_forum_messages(
-                            client, channel, limit=limit, after_id_fn=db.get_last_msg_id
+                        messages, inserted = await _fetch_forum_messages(
+                            client,
+                            channel,
+                            db,
+                            context,
+                            limit=limit,
+                            after_id_fn=db.get_last_msg_id,
                         )
                     else:
                         messages = await fetch_messages(client, channel, limit=limit, after=last_id)
+                        _annotate_messages(messages, context)
+                        inserted = db.insert_batch(messages)
                     progress.update(task_id, description=f"Fetched {len(messages)} new messages")
 
-                _annotate_messages(messages, context)
-
-                inserted = db.insert_batch(messages)
                 return len(messages), inserted
 
     total, inserted = asyncio.run(_run())
@@ -374,17 +401,17 @@ def dc_sync_all(limit: int):
                     last_id = db.get_last_msg_id(ch_id)
                     try:
                         if ch.get("channel_type") in (GUILD_FORUM, GUILD_MEDIA):
-                            messages = await _fetch_forum_messages(
-                                client, ch_id, limit=limit, after_id_fn=db.get_last_msg_id
+                            messages, inserted = await _fetch_forum_messages(
+                                client, ch_id, db, ch, limit=limit, after_id_fn=db.get_last_msg_id
                             )
                         else:
                             messages = await fetch_messages(
                                 client, ch_id, limit=limit, after=last_id
                             )
-                        for msg in messages:
-                            msg["guild_name"] = ch.get("guild_name")
-                            msg["channel_name"] = ch.get("channel_name")
-                        inserted = db.insert_batch(messages)
+                            for msg in messages:
+                                msg["guild_name"] = ch.get("guild_name")
+                                msg["channel_name"] = ch.get("channel_name")
+                            inserted = db.insert_batch(messages)
                         results[ch_name] = inserted
                         if inserted > 0:
                             console.print(f"  [green]✓[/green] {ch_name}: +{inserted}")
