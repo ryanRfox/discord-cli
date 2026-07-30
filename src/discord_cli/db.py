@@ -291,11 +291,19 @@ class MessageDB:
         return [dict(r) for r in rows]
 
     def get_last_msg_id(self, channel_id: str) -> str | None:
-        """Get the latest msg_id for a channel, used for incremental sync."""
+        """Get the latest msg_id for a channel, used for incremental sync.
+
+        msg_id is TEXT, so MAX() would compare lexicographically and return
+        the wrong id when snowflakes differ in digit length; compare
+        numerically instead. Snowflakes fit SQLite's signed 64-bit INTEGER
+        until ~2084 (CAST saturates at 2**63-1 beyond that).
+        """
         row = self.conn.execute(
-            "SELECT MAX(msg_id) FROM messages WHERE channel_id = ?", (channel_id,)
+            "SELECT msg_id FROM messages WHERE channel_id = ?"
+            " ORDER BY CAST(msg_id AS INTEGER) DESC LIMIT 1",
+            (channel_id,),
         ).fetchone()
-        return row[0] if row and row[0] is not None else None
+        return row[0] if row else None
 
     def count(self, channel_id: str | None = None) -> int:
         if channel_id:

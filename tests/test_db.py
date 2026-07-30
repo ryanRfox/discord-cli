@@ -51,6 +51,40 @@ def test_get_recent_returns_latest_messages_in_chronological_order(seeded_db: Me
     assert [m["msg_id"] for m in messages] == ["101", "102"]
 
 
+def test_get_last_msg_id_compares_snowflakes_numerically(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "messages.db"))
+
+    with MessageDB() as db:
+        db.insert_batch(
+            [
+                {
+                    # 18 digits — lexicographically largest, numerically older
+                    "msg_id": "999999999999999999",
+                    "channel_id": "c-1",
+                    "channel_name": "general",
+                    "sender_name": "Alice",
+                    "content": "older message",
+                    "timestamp": datetime(2026, 3, 10, 1, 0, tzinfo=timezone.utc),
+                },
+                {
+                    # 19 digits — the chronologically-latest snowflake
+                    "msg_id": "1470194445839503420",
+                    "channel_id": "c-1",
+                    "channel_name": "general",
+                    "sender_name": "Bob",
+                    "content": "newer message",
+                    "timestamp": datetime(2026, 3, 10, 2, 0, tzinfo=timezone.utc),
+                },
+            ]
+        )
+
+        assert db.get_last_msg_id("c-1") == "1470194445839503420"
+
+
+def test_get_last_msg_id_returns_none_for_unknown_channel(seeded_db: MessageDB):
+    assert seeded_db.get_last_msg_id("c-nonexistent") is None
+
+
 def test_top_senders_groups_by_sender_id_not_name(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "messages.db"))
 
